@@ -1,1 +1,87 @@
 
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - net-heatbeat
+
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    networks:
+      - net-heatbeat
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_DB: heartbeat_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    networks:
+      - net-heatbeat
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    
+
+  producer:
+    build:
+      context: .
+    depends_on:
+      - kafka
+    networks:
+      - net-heatbeat
+    command: python data_generator.py
+
+
+  spark:
+    image: bitnami/spark:latest
+    container_name: spark-streaming
+    user: root
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - SPARK_MODE=master
+    networks:
+      - net-heatbeat
+    volumes:
+      - ./spark_streaming.py:/opt/spark-apps/spark_streaming.py
+      - ./postgresql-42.7.5.jar:/opt/spark-apps/jars/postgresql-42.7.5.jar
+
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+    networks:
+      - net-heatbeat
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+volumes:
+  grafana_data:
+
+networks:
+  net-heatbeat:
